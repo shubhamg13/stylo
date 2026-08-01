@@ -1323,7 +1323,6 @@ affects = "layout"
 type = "MathDepth"
 initial = "0"
 struct = "font"
-servo_pref = "layout.unimplemented"
 spec = "https://mathml-refresh.github.io/mathml-core/#the-math-script-level-property"
 affects = ""
 
@@ -3790,7 +3789,6 @@ keyword = { values = ["auto", "none"], gecko_constant_prefix = "NS_FONT_OPTICAL_
 
 [math-style]
 struct = "font"
-servo_pref = "layout.unimplemented"
 spec = "https://mathml-refresh.github.io/mathml-core/#the-math-style-property"
 animation_type = "discrete"
 affects = "layout"

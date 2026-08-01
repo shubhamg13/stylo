@@ -980,7 +980,6 @@ impl<'a> Cascade<'a> {
             },
             FontSize => {
                 if self.seen.longhands.contains(LonghandId::MathDepth) {
-                    #[cfg(feature = "gecko")]
                     Self::recompute_math_font_size_if_needed(context);
                 }
                 if self.seen.longhands.contains(LonghandId::XLang)
@@ -1618,6 +1617,115 @@ impl<'a> Cascade<'a> {
         font.mFont.size = NonNegative(new_size);
         font.mSize = NonNegative(new_size);
         font.mScriptUnconstrainedSize = NonNegative(new_unconstrained_size);
+    }
+
+    #[cfg(feature = "servo")]
+    fn recompute_math_font_size_if_needed(context: &mut computed::Context) {
+        use crate::font_metrics::FontMetricsOrientation;
+        use crate::values::computed::CSSPixelLength;
+        use crate::values::generics::NonNegative;
+        use crate::values::specified::font::QueryFontMetricsFlags;
+        use crate::values::specified::length::{FontBaseSize, PX_PER_PT};
+
+        const SCALE_FACTOR_WHEN_INCREMENTING_MATH_DEPTH_BY_ONE: f32 = 0.71;
+
+        fn scale_factor_for_math_depth_change(
+            parent_math_depth: i32,
+            computed_math_depth: i32,
+            parent_script_percent_scale_down: Option<f32>,
+            parent_script_script_percent_scale_down: Option<f32>,
+        ) -> f32 {
+            let mut a = parent_math_depth;
+            let mut b = computed_math_depth;
+            let c = SCALE_FACTOR_WHEN_INCREMENTING_MATH_DEPTH_BY_ONE;
+            let scale_between_0_and_1 = parent_script_percent_scale_down.unwrap_or(c);
+            let scale_between_0_and_2 =
+                parent_script_script_percent_scale_down.unwrap_or(c * c);
+            let mut s = 1.0;
+            let mut invert_scale_factor = false;
+            if a == b {
+                return s;
+            }
+            if b < a {
+                std::mem::swap(&mut a, &mut b);
+                invert_scale_factor = true;
+            }
+            let mut e = b - a;
+            if a <= 0 && b >= 2 {
+                s *= scale_between_0_and_2;
+                e -= 2;
+            } else if a == 1 {
+                s *= scale_between_0_and_2 / scale_between_0_and_1;
+                e -= 1;
+            } else if b == 1 {
+                s *= scale_between_0_and_1;
+                e -= 1;
+            }
+            s *= c.powi(e);
+            if invert_scale_factor {
+                1.0 / s.max(f32::MIN_POSITIVE)
+            } else {
+                s
+            }
+        }
+
+        // Do not do anything if font-size: math is not set.
+        if context.builder.get_font().clone_font_size().keyword_info.kw
+            != specified::FontSizeKeyword::Math
+        {
+            return;
+        }
+
+        const DEFAULT_SCRIPT_MIN_SIZE_PT: f32 = 8.0;
+
+        let (new_actual_size, new_unconstrained_size) = {
+            let builder = &context.builder;
+            let font = builder.get_font();
+            let parent_font = builder.get_parent_font();
+
+            let delta = i32::from(font.clone_math_depth())
+                .saturating_sub(i32::from(parent_font.clone_math_depth()));
+
+            if delta == 0 {
+                return;
+            }
+
+            let min = CSSPixelLength::new(DEFAULT_SCRIPT_MIN_SIZE_PT * PX_PER_PT);
+
+            // Calculate scale factor following MathML Core's algorithm.
+            let scale = {
+                let font_metrics = context.query_font_metrics(
+                    FontBaseSize::InheritedStyle,
+                    FontMetricsOrientation::Horizontal,
+                    QueryFontMetricsFlags::NEEDS_MATH_SCALES,
+                );
+                scale_factor_for_math_depth_change(
+                    i32::from(parent_font.clone_math_depth()),
+                    i32::from(font.clone_math_depth()),
+                    font_metrics.script_percent_scale_down,
+                    font_metrics.script_script_percent_scale_down,
+                )
+            };
+
+            let parent_font_size = parent_font.clone_font_size();
+            let parent_unconstrained = parent_font_size.used_size.0;
+            let scaled_size = parent_unconstrained.scale_by(scale);
+
+            if scale <= 1.0 {
+                if parent_unconstrained <= min {
+                    (parent_unconstrained, scaled_size)
+                } else {
+                    (min.max(scaled_size), scaled_size)
+                }
+            } else {
+                (scaled_size.min(scaled_size.max(min)), scaled_size)
+            }
+        };
+
+        let mut font_size = context.builder.get_font().clone_font_size();
+        font_size.computed_size = NonNegative(new_actual_size);
+        font_size.used_size = NonNegative(new_unconstrained_size);
+        context.builder.mutate_font().set_font_size(font_size);
     }
 
     /// Seeds `context.builder.substitution_functions` with the inherited custom properties and the

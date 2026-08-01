@@ -447,7 +447,6 @@ impl FontFamily {
         generic_font_family!(MONOSPACE, Monospace);
         generic_font_family!(CURSIVE, Cursive);
         generic_font_family!(FANTASY, Fantasy);
-        #[cfg(feature = "gecko")]
         generic_font_family!(MATH, Math);
         #[cfg(feature = "gecko")]
         generic_font_family!(MOZ_EMOJI, MozEmoji);
@@ -463,7 +462,6 @@ impl FontFamily {
             GenericFontFamily::Monospace => &*MONOSPACE,
             GenericFontFamily::Cursive => &*CURSIVE,
             GenericFontFamily::Fantasy => &*FANTASY,
-            #[cfg(feature = "gecko")]
             GenericFontFamily::Math => &*MATH,
             #[cfg(feature = "gecko")]
             GenericFontFamily::MozEmoji => &*MOZ_EMOJI,
@@ -640,6 +638,11 @@ fn math_enabled(context: &ParserContext) -> bool {
     context.chrome_rules_enabled() || static_prefs::pref!("mathml.font_family_math.enabled")
 }
 
+#[cfg(not(feature = "gecko"))]
+fn math_enabled(_: &ParserContext) -> bool {
+    true
+}
+
 /// A generic font-family name.
 ///
 /// The order here is important, if you change it make sure that
@@ -679,7 +682,6 @@ pub enum GenericFontFamily {
     Monospace,
     Cursive,
     Fantasy,
-    #[cfg(feature = "gecko")]
     #[parse(condition = "math_enabled")]
     Math,
     #[parse(condition = "system_ui_enabled")]
@@ -697,8 +699,9 @@ impl GenericFontFamily {
     pub(crate) fn valid_for_user_font_prioritization(self) -> bool {
         match self {
             Self::None | Self::Cursive | Self::Fantasy | Self::SystemUi => false,
+            Self::Math => false,
             #[cfg(feature = "gecko")]
-            Self::Math | Self::MozEmoji => false,
+            Self::MozEmoji => false,
             Self::Serif | Self::SansSerif | Self::Monospace => true,
         }
     }
@@ -730,7 +733,7 @@ impl Parse for SingleFontFamily {
             //  The keywords ‘initial’ and ‘default’ are reserved for future use
             //  and must also be quoted when used as font names.
             //  UAs must not consider these keywords as matching the <family-name> type."
-            "inherit" | "initial" | "unset" | "revert" | "default" => true,
+            "inherit" | "initial" | "unset" | "revert" | "default" | "math" => true,
             _ => false,
         };
 
